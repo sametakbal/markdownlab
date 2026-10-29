@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+.pytest_cache/
+tessdata/
+*.zip
+*.sha256
+*.egg-info/

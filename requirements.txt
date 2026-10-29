@@ -1,0 +1,7 @@
+PySide6>=6.6
+mammoth>=1.8
+markdownify>=0.13
+pymupdf>=1.26
+pymupdf4llm>=0.2
+markdown-it-py>=3.0
+mdit-py-plugins>=0.4

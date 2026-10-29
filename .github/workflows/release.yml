@@ -1,0 +1,89 @@
+name: Release
+
+# Pushing a tag like v0.1.0 builds the Windows package and publishes it as a
+# GitHub Release. Running it manually (workflow_dispatch) only builds the
+# package and uploads it as a workflow artifact.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Check that the tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = python -c "import markdownlab; print(markdownlab.__version__)"
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match markdownlab.__version__ ($version)"
+          }
+
+      - name: Fetch OCR language data
+        run: python scripts/fetch_tessdata.py
+
+      - name: Test
+        env:
+          TESSDATA_PREFIX: ${{ github.workspace }}\tessdata
+        run: python -m pytest -q
+
+      - name: Build
+        run: pyinstaller --noconfirm build.spec
+
+      - name: Smoke test the packaged exe
+        run: python scripts/smoke_test.py dist/MarkdownLab/MarkdownLab.exe
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = python -c "import markdownlab; print(markdownlab.__version__)"
+          $name = "MarkdownLab-$version-windows-x64"
+          Compress-Archive -Path dist/MarkdownLab -DestinationPath "$name.zip"
+          $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Out-File "$name.zip.sha256" -Encoding ascii
+          "ASSET=$name" >> $env:GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET }}
+          path: |
+            ${{ env.ASSET }}.zip
+            ${{ env.ASSET }}.zip.sha256
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ASSET }}.zip
+            ${{ env.ASSET }}.zip.sha256
+          generate_release_notes: true
+          body: |
+            ## İndirme / Download
+
+            **Windows 10/11 (64-bit):** `${{ env.ASSET }}.zip` dosyasını indirin, sağ tıklayıp **Tümünü ayıkla** ile çıkarın ve `MarkdownLab\MarkdownLab.exe` dosyasını çalıştırın. Python veya başka bir kurulum gerekmez; Türkçe ve İngilizce OCR dil dosyaları pakete dahildir. Exe, yanındaki `_internal` klasörü olmadan çalışmaz: zip'in içinden açmayın, klasörü bütün olarak kullanın.
+
+            **Windows 10/11 (64-bit):** download `${{ env.ASSET }}.zip`, right-click it, choose **Extract All** and run `MarkdownLab\MarkdownLab.exe`. No Python or other installation needed; Turkish and English OCR language data are included. The exe does not work without the `_internal` folder next to it: don't run it from inside the zip, keep the folder together.
+
+            ## Lisans / License
+
+            MarkdownLab, [AGPL-3.0-or-later](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/LICENSE) lisansıyla dağıtılır; bu sürümün kaynak kodu aşağıdaki "Source code" arşivlerindedir. Üçüncü taraf lisansları için pakete dahil `THIRD_PARTY_NOTICES.md` dosyasına bakın.
+
+            MarkdownLab is licensed under [AGPL-3.0-or-later](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/LICENSE); the source code of this release is in the "Source code" archives below. See the bundled `THIRD_PARTY_NOTICES.md` for third-party licenses.
